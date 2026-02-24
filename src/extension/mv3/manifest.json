@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "browser-bridge-plus",
+  "description": "Bridge Chrome tabs to browser-bridge-plus relay server.",
+  "version": "0.0.0",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_title": "browser-bridge-plus"
+  }
+}

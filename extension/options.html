@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>browser-bridge-plus options</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 24px; max-width: 840px; }
+      label { display:block; margin: 12px 0 6px; font-weight: 600; }
+      input[type='text'], textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+      .row { margin-top: 12px; }
+      .hint { color: #666; font-size: 12px; margin-top: 6px; }
+      button { margin-top: 16px; padding: 8px 12px; }
+      #status { margin-top: 12px; font-size: 13px; }
+      .caps { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 6px 16px; }
+      .panel { border: 1px solid #ddd; border-radius: 8px; padding: 14px; margin-top: 14px; }
+      h2 { font-size: 16px; margin: 0 0 8px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>browser-bridge-plus</h1>
+    <label for="endpoint">Relay WebSocket Endpoint</label>
+    <input id="endpoint" type="text" placeholder="wss://<your-host>/ws" />
+    <div class="hint">先填 endpoint 再启用。建议使用 wss://*.app.github.dev/ws</div>
+
+    <div class="row">
+      <label><input id="enabled" type="checkbox" /> Enable bridge connection</label>
+    </div>
+
+    <div class="panel">
+      <h2>execute-in-tab（v0）</h2>
+      <label><input id="executionEnabled" type="checkbox" checked /> Enable execute-in-tab</label>
+      <div class="hint">关闭后会拒绝所有 execute-in-tab 请求（execution_disabled）。</div>
+
+      <label for="allowlist">Execution Domain Allowlist（每行一个，支持 *.example.com）</label>
+      <textarea id="allowlist" rows="5" placeholder="linux.do&#10;*.linux.do"></textarea>
+      <div class="hint">未命中白名单会返回 domain_not_allowed。v0 仅建议配置公开网页域名。</div>
+
+      <label>Execution Capabilities</label>
+      <div class="caps">
+        <label><input id="capRead" type="checkbox" checked /> v0(read)</label>
+        <label><input id="capRunJs" type="checkbox" /> v1(runJs)</label>
+      </div>
+      <div class="hint">v0 只读动作：extractText / extractLinks / querySelectorText；v1 为 runJs。</div>
+    </div>
+
+    <div class="row"><strong>Client ID:</strong> <span id="clientId">-</span></div>
+
+    <button id="save">Save</button>
+    <div id="status"></div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

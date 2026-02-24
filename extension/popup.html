@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Browser Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Browser Bridge</h1>
+      <div class="status-row">
+        <span>当前标签状态</span>
+        <strong id="stateBadge" class="badge off">OFF</strong>
+      </div>
+      <p id="hint" class="hint">检查中...</p>
+
+      <div class="buttons">
+        <button id="toggleBtn">Attach</button>
+        <button id="summaryBtn" class="secondary">抓取当前页摘要</button>
+      </div>
+
+      <pre id="result"></pre>
+
+      <a class="link" href="options.html" target="_blank" rel="noreferrer">打开配置（白名单 / endpoint）</a>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

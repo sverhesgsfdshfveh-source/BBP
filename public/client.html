@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Bridge Plus 控制台</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:20px; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { margin: 0 0 16px; }
+    .card { background:#111827; border:1px solid #334155; border-radius:10px; padding:14px; margin-bottom:12px; }
+    .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+    .k { color:#94a3b8; font-size:12px; }
+    .v { font-size:22px; font-weight:700; }
+    .row { display:flex; gap:8px; align-items:center; }
+    input { flex:1; background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:8px; font-family:monospace; }
+    button { background:#22c55e; border:none; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    pre { background:#020617; border:1px solid #334155; border-radius:8px; padding:10px; max-height:300px; overflow:auto; }
+    table { width:100%; border-collapse: collapse; font-size:13px; }
+    th,td { border-bottom:1px solid #1f2937; padding:6px; text-align:left; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px; margin-bottom:10px;">
+    <h1 style="margin:0;">🐕 Browser Bridge Plus 控制台</h1>
+    <button id="refreshBtn" style="background:#38bdf8;">刷新</button>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:8px;"><strong>扩展 Endpoint（复制到 options）</strong></div>
+    <div class="row">
+      <input id="endpoint" readonly />
+      <button id="copyBtn">复制</button>
+    </div>
+  </div>
+
+  <div class="card grid">
+    <div><div class="k">clientsOnline</div><div class="v" id="clientsOnline">0</div></div>
+    <div><div class="k">tabsActive</div><div class="v" id="tabsActive">0</div></div>
+    <div><div class="k">wsConnections</div><div class="v" id="wsConnections">0</div></div>
+    <div><div class="k">clientIdConflictTotal</div><div class="v" id="clientIdConflictTotal">0</div></div>
+  </div>
+
+  <div class="card">
+    <div><strong>客户端</strong></div>
+    <table>
+      <thead><tr><th>clientId</th><th>status</th><th>lastSeen</th><th>graceDeadline</th></tr></thead>
+      <tbody id="clientsTbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+      <strong>Tabs（默认仅 active）</strong>
+      <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="showHistoryTabs" /> 显示历史(stale/expired)
+      </label>
+    </div>
+    <table>
+      <thead><tr><th>clientId</th><th>tabId</th><th>status</th><th>title</th><th>url</th></tr></thead>
+      <tbody id="tabsTbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div><strong>状态日志</strong></div>
+    <pre id="log"></pre>
+  </div>
+</div>
+<script>
+  const endpointEl = document.getElementById('endpoint');
+  const copyBtn = document.getElementById('copyBtn');
+  const logEl = document.getElementById('log');
+
+  function now(){ return new Date().toLocaleTimeString(); }
+  function log(msg){ logEl.textContent += `[${now()}] ${msg}\n`; logEl.scrollTop = logEl.scrollHeight; }
+  function esc(s){ return String(s ?? '').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+  function wsEndpoint() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/ws`;
+  }
+
+  endpointEl.value = wsEndpoint();
+  copyBtn.onclick = async () => {
+    try { await navigator.clipboard.writeText(endpointEl.value); log('已复制 endpoint'); }
+    catch { endpointEl.select(); document.execCommand('copy'); log('已复制 endpoint'); }
+  };
+
+  function fmtTs(ts){ return ts ? new Date(ts).toLocaleString() : '-'; }
+
+  let lastStateKey = '';
+  const showHistoryTabsEl = document.getElementById('showHistoryTabs');
+
+  async function refresh() {
+    try {
+      const [s,c,t] = await Promise.all([
+        fetch('/api/status').then(r=>r.json()),
+        fetch('/api/clients').then(r=>r.json()),
+        fetch('/api/tabs').then(r=>r.json())
+      ]);
+
+      const clients = c.clients || [];
+      const allTabs = t.tabs || [];
+      const showHistory = !!showHistoryTabsEl?.checked;
+      const tabs = showHistory ? allTabs : allTabs.filter((x) => x.status === 'active');
+      const key = JSON.stringify({
+        clientsOnline: s.metrics?.clientsOnline ?? 0,
+        tabsActive: s.metrics?.tabsActive ?? 0,
+        wsConnections: s.metrics?.wsConnections ?? 0,
+        clientIdConflictTotal: s.clientIdConflictTotal ?? 0,
+        clients: clients.map(x => [x.clientId, x.status, x.lastSeen, x.graceDeadline]),
+        tabs: tabs.map(x => [x.clientId, x.tabId, x.status, x.url, x.title]),
+        showHistory
+      });
+
+      // 无变化时不刷日志、不重绘，避免页面噪音和额外消耗
+      if (key === lastStateKey) return;
+      lastStateKey = key;
+
+      document.getElementById('clientsOnline').textContent = s.metrics?.clientsOnline ?? 0;
+      document.getElementById('tabsActive').textContent = s.metrics?.tabsActive ?? 0;
+      document.getElementById('wsConnections').textContent = s.metrics?.wsConnections ?? 0;
+      document.getElementById('clientIdConflictTotal').textContent = s.clientIdConflictTotal ?? 0;
+
+      document.getElementById('clientsTbody').innerHTML = clients.map(x=>
+        `<tr><td>${esc(x.clientId||'')}</td><td>${esc(x.status||'')}</td><td>${fmtTs(x.lastSeen)}</td><td>${fmtTs(x.graceDeadline)}</td></tr>`
+      ).join('') || '<tr><td colspan="4">(empty)</td></tr>';
+
+      document.getElementById('tabsTbody').innerHTML = tabs.map(x=>
+        `<tr><td>${esc(x.clientId||'')}</td><td>${esc(x.tabId||'')}</td><td>${esc(x.status||'')}</td><td>${esc(x.title||'')}</td><td>${esc(x.url||'')}</td></tr>`
+      ).join('') || '<tr><td colspan="5">(empty)</td></tr>';
+
+      log(`状态变更：clients=${clients.length}, tabs=${tabs.length}, ws=${s.metrics?.wsConnections ?? 0}`);
+    } catch (e) {
+      log(`刷新失败: ${e.message || e}`);
+    }
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', () => {
+    refresh();
+  });
+
+  showHistoryTabsEl?.addEventListener('change', () => {
+    // 切换显示模式时强制重绘
+    lastStateKey = '';
+    refresh();
+  });
+
+  refresh();
+</script>
+</body>
+</html>
