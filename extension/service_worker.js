@@ -6,7 +6,7 @@ const DEFAULT_ENDPOINT = '';
 const STORAGE_KEYS = {
   endpoint: 'relayEndpoint',
   clientId: 'clientId',
-  enabled: 'bridgeEnabled',
+  armed: 'bridgeArmed',
   executionEnabled: 'executionEnabled',
   executionAllowlist: 'executionAllowlist',
   executionCapabilities: 'executionCapabilities'
@@ -73,7 +73,7 @@ const EXECUTION_MODES = new Set(['runJs', 'api', 'auto']);
 let ws = null;
 let clientId = null;
 let endpoint = DEFAULT_ENDPOINT;
-let enabled = false;
+let armed = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 let heartbeatTimer = null;
@@ -195,13 +195,13 @@ function closeSocket() {
 }
 
 function scheduleReconnect() {
-  if (!enabled) return;
+  if (!armed) return;
   clearReconnectTimer();
   const delay = calcBackoffMs(reconnectAttempts);
   reconnectAttempts += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect();
+    if (armed) connect();
   }, delay);
 }
 
@@ -586,7 +586,7 @@ async function routeExecuteAction(req) {
 }
 
 function connect() {
-  if (!enabled || !isValidEndpoint(endpoint) || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
+  if (!armed || !isValidEndpoint(endpoint) || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
   try {
     ws = new WebSocket(endpoint);
@@ -651,7 +651,7 @@ async function loadConfig() {
   const store = await getStore();
   const saved = await store.get({
     [STORAGE_KEYS.endpoint]: DEFAULT_ENDPOINT,
-    [STORAGE_KEYS.enabled]: false,
+    [STORAGE_KEYS.armed]: false,
     [STORAGE_KEYS.clientId]: '',
     [STORAGE_KEYS.executionEnabled]: true,
     [STORAGE_KEYS.executionAllowlist]: [],
@@ -659,7 +659,7 @@ async function loadConfig() {
   });
 
   endpoint = typeof saved[STORAGE_KEYS.endpoint] === 'string' ? saved[STORAGE_KEYS.endpoint].trim() : DEFAULT_ENDPOINT;
-  enabled = saved[STORAGE_KEYS.enabled] === true;
+  armed = saved[STORAGE_KEYS.armed] === true;
 
   if (typeof saved[STORAGE_KEYS.clientId] === 'string' && saved[STORAGE_KEYS.clientId]) {
     clientId = saved[STORAGE_KEYS.clientId];
@@ -676,7 +676,7 @@ async function loadConfig() {
 
   await store.set({
     [STORAGE_KEYS.endpoint]: endpoint,
-    [STORAGE_KEYS.enabled]: enabled,
+    [STORAGE_KEYS.armed]: armed,
     [STORAGE_KEYS.clientId]: clientId,
     [STORAGE_KEYS.executionEnabled]: executionEnabled,
     [STORAGE_KEYS.executionAllowlist]: executionAllowlist,
@@ -684,12 +684,12 @@ async function loadConfig() {
   });
 }
 
-async function applySwitch(nextEnabled) {
-  enabled = !!nextEnabled;
+async function applyArmedState(nextArmed) {
+  armed = !!nextArmed;
   const store = await getStore();
-  await store.set({ [STORAGE_KEYS.enabled]: enabled });
+  await store.set({ [STORAGE_KEYS.armed]: armed });
   clearReconnectTimer();
-  if (!enabled) {
+  if (!armed) {
     stopHeartbeat();
     closeSocket();
     return;
@@ -705,8 +705,8 @@ chrome.storage.onChanged.addListener((changes) => {
     connect();
   }
 
-  if (changes[STORAGE_KEYS.enabled]) {
-    void applySwitch(changes[STORAGE_KEYS.enabled].newValue);
+  if (changes[STORAGE_KEYS.armed]) {
+    void applyArmedState(changes[STORAGE_KEYS.armed].newValue);
   }
 
   if (changes[STORAGE_KEYS.executionEnabled]) {
@@ -741,14 +741,21 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   scheduleSnapshot();
 });
 
+function getConnectionState() {
+  if (!armed || !isValidEndpoint(endpoint)) return 'off';
+  if (ws?.readyState === WebSocket.OPEN) return 'on';
+  if (ws?.readyState === WebSocket.CONNECTING || reconnectTimer) return 'connecting';
+  return 'off';
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== 'object') return;
   if (message.type === 'bridge:status') {
     sendResponse({
       clientId,
       endpoint,
-      enabled,
       connected: ws?.readyState === WebSocket.OPEN,
+      state: getConnectionState(),
       executionEnabled,
       executionAllowlist,
       executionCapabilities
@@ -757,9 +764,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.type === 'bridge:set-config') {
     const nextEndpoint = typeof message.endpoint === 'string' ? message.endpoint.trim() : endpoint;
-    const nextEnabled = message.enabled === true;
+    if (!isValidEndpoint(nextEndpoint)) {
+      sendResponse({ ok: false, error: 'invalid endpoint: must start with ws:// or wss://' });
+      return true;
+    }
     endpoint = nextEndpoint;
-    enabled = nextEnabled;
+    armed = true;
 
     const nextExecutionEnabled = message.executionEnabled !== false;
     const nextExecutionAllowlist = normalizeAllowlist(message.executionAllowlist);
@@ -776,7 +786,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const store = await getStore();
       await store.set({
         [STORAGE_KEYS.endpoint]: endpoint,
-        [STORAGE_KEYS.enabled]: enabled,
+        [STORAGE_KEYS.armed]: armed,
         [STORAGE_KEYS.clientId]: clientId || '',
         [STORAGE_KEYS.executionEnabled]: executionEnabled,
         [STORAGE_KEYS.executionAllowlist]: executionAllowlist,
@@ -784,11 +794,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       });
       closeSocket();
       clearReconnectTimer();
-      if (enabled && isValidEndpoint(endpoint)) connect();
+      if (armed && isValidEndpoint(endpoint)) connect();
       sendResponse({
         ok: true,
         endpoint,
-        enabled,
         clientId,
         executionEnabled,
         executionAllowlist,
@@ -808,5 +817,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 (async () => {
   await loadConfig();
-  if (enabled && isValidEndpoint(endpoint)) connect();
+  if (armed && isValidEndpoint(endpoint)) connect();
 })();

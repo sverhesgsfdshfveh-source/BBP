@@ -3,17 +3,18 @@ const hint = document.getElementById('hint');
 const summaryBtn = document.getElementById('summaryBtn');
 const resultEl = document.getElementById('result');
 
-function render({ enabled, connected }) {
-  const on = !!enabled;
-  stateBadge.textContent = on ? (connected ? 'ON' : 'ON*') : 'OFF';
+function render({ state, connected }) {
+  const normalized = state === 'on' || state === 'connecting' ? state : 'off';
+  const on = normalized !== 'off';
+  stateBadge.textContent = normalized === 'on' ? 'ON' : (normalized === 'connecting' ? 'ON*' : 'OFF');
   stateBadge.className = `badge ${on ? 'on' : 'off'}`;
 
-  if (on && !connected) {
-    hint.textContent = '已启用，正在重连...';
-  } else if (on && connected) {
+  if (normalized === 'connecting') {
+    hint.textContent = '连接中，正在重连...';
+  } else if (normalized === 'on' && connected) {
     hint.textContent = '已连接 relay';
   } else {
-    hint.textContent = '请在 Options 页面配置 endpoint 与连接状态';
+    hint.textContent = 'OFF：请在 Options 页面保存配置后启动连接';
   }
 
   summaryBtn.disabled = true;
@@ -24,11 +25,11 @@ async function getBridgeStatus() {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'bridge:status' });
     return {
-      enabled: !!res?.enabled,
+      state: res?.state,
       connected: !!res?.connected
     };
   } catch {
-    return { enabled: false, connected: false };
+    return { state: 'off', connected: false };
   }
 }
 
